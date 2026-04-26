@@ -1,0 +1,61 @@
+@model TaskItem
+@{
+    ViewData["Title"] = "Delete Task";
+}
+
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="d-flex align-items-center mb-4">
+            <a asp-action="Details" asp-route-id="@Model.Id" class="btn btn-outline-secondary btn-sm me-3">
+                <i class="bi bi-arrow-left"></i>
+            </a>
+            <h1 class="h3 mb-0 text-danger">
+                <i class="bi bi-trash me-2"></i>Delete Task
+            </h1>
+        </div>
+
+        <div class="card border-danger shadow-sm">
+            <div class="card-body p-4">
+                <div class="alert alert-warning d-flex align-items-start" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill flex-shrink-0 me-3 fs-5 mt-1"></i>
+                    <div>
+                        <strong>This action cannot be undone.</strong><br />
+                        All comments attached to this task will also be permanently deleted.
+                    </div>
+                </div>
+
+                <dl class="row mb-4">
+                    <dt class="col-sm-4">Title</dt>
+                    <dd class="col-sm-8 fw-semibold">@Model.Title</dd>
+
+                    <dt class="col-sm-4">Status</dt>
+                    <dd class="col-sm-8">@Model.Status</dd>
+
+                    <dt class="col-sm-4">Priority</dt>
+                    <dd class="col-sm-8">@Model.Priority</dd>
+
+                    <dt class="col-sm-4">Due Date</dt>
+                    <dd class="col-sm-8">@(Model.DueDate?.ToString("MMM d, yyyy") ?? "Not set")</dd>
+
+                    <dt class="col-sm-4">Assigned To</dt>
+                    <dd class="col-sm-8">@(Model.AssignedToUsername ?? "Unassigned")</dd>
+
+                    <dt class="col-sm-4">Comments</dt>
+                    <dd class="col-sm-8">@Model.Comments.Count comment(s) will be deleted</dd>
+                </dl>
+
+                <form asp-action="Delete" asp-route-id="@Model.Id" method="post">
+                    @Html.AntiForgeryToken()
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash me-1"></i>Yes, Delete Task
+                        </button>
+                        <a asp-action="Details" asp-route-id="@Model.Id" class="btn btn-outline-secondary">
+                            Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

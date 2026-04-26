@@ -1,0 +1,199 @@
+@model TaskItem
+@{
+    ViewData["Title"] = Model.Title;
+    var currentUserId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+}
+
+<div class="d-flex align-items-center mb-4">
+    <a asp-action="Index" class="btn btn-outline-secondary btn-sm me-3">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+    <h1 class="h3 mb-0 me-auto text-truncate">@Model.Title</h1>
+    <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-outline-primary btn-sm me-2">
+        <i class="bi bi-pencil me-1"></i>Edit
+    </a>
+    <a asp-action="Delete" asp-route-id="@Model.Id" class="btn btn-outline-danger btn-sm">
+        <i class="bi bi-trash me-1"></i>Delete
+    </a>
+</div>
+
+<div class="row g-4">
+    <!-- Task details -->
+    <div class="col-lg-8">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-sm-6">
+                        <p class="text-muted small mb-1">Status</p>
+                        <span class="badge fs-6 @StatusBadge(Model.Status)">@DisplayName(Model.Status)</span>
+                    </div>
+                    <div class="col-sm-6">
+                        <p class="text-muted small mb-1">Priority</p>
+                        <span class="badge fs-6 @PriorityBadge(Model.Priority)">@DisplayName(Model.Priority)</span>
+                    </div>
+                    <div class="col-sm-6">
+                        <p class="text-muted small mb-1">Due Date</p>
+                        @if (Model.DueDate.HasValue)
+                        {
+                            bool overdue = Model.DueDate < DateTime.Today && Model.Status != AppTaskStatus.Done;
+                            <span class="@(overdue ? "text-danger fw-semibold" : "")">
+                                @Model.DueDate.Value.ToString("MMMM d, yyyy")
+                                @if (overdue) { <i class="bi bi-exclamation-triangle-fill ms-1" title="Overdue"></i> }
+                            </span>
+                        }
+                        else { <span class="text-muted">Not set</span> }
+                    </div>
+                    <div class="col-sm-6">
+                        <p class="text-muted small mb-1">Assigned To</p>
+                        @if (Model.AssignedToUsername is not null)
+                        {
+                            <span class="badge bg-light text-dark border">
+                                <i class="bi bi-person me-1"></i>@Model.AssignedToUsername
+                            </span>
+                        }
+                        else { <span class="text-muted">Unassigned</span> }
+                    </div>
+                    <div class="col-sm-6">
+                        <p class="text-muted small mb-1">Created By</p>
+                        <span>@Model.CreatedByUsername</span>
+                    </div>
+                    <div class="col-sm-6">
+                        <p class="text-muted small mb-1">Last Updated</p>
+                        <span>@Model.UpdatedAt.ToString("MMM d, yyyy HH:mm")</span>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(Model.Description))
+                {
+                    <hr />
+                    <h6 class="fw-semibold mb-2">Description</h6>
+                    <p class="mb-0" style="white-space: pre-wrap;">@Model.Description</p>
+                }
+            </div>
+        </div>
+
+        <!-- Comments -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-white py-3">
+                <h5 class="mb-0">
+                    <i class="bi bi-chat-dots me-2"></i>Comments
+                    <span class="badge bg-secondary ms-1">@Model.Comments.Count</span>
+                </h5>
+            </div>
+            <div class="card-body">
+                @if (Model.Comments.Any())
+                {
+                    foreach (var comment in Model.Comments)
+                    {
+                        <div class="d-flex mb-4">
+                            <div class="avatar-circle flex-shrink-0">@(comment.Username?[0].ToString().ToUpper() ?? "?")</div>
+                            <div class="flex-grow-1 ms-3">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <strong>@comment.Username</strong>
+                                    <small class="text-muted ms-2">@comment.CreatedAt.ToString("MMM d, yyyy HH:mm")</small>
+                                </div>
+                                <p class="mb-1 mt-1" style="white-space: pre-wrap;">@comment.Content</p>
+                                @if (comment.UserId == currentUserId)
+                                {
+                                    <form asp-controller="Comments" asp-action="Delete" method="post" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id"     value="@comment.Id" />
+                                        <input type="hidden" name="taskId" value="@Model.Id" />
+                                        <button type="submit" class="btn btn-link btn-sm text-danger p-0"
+                                                onclick="return confirm('Delete this comment?')">
+                                            <i class="bi bi-trash me-1"></i>Delete
+                                        </button>
+                                    </form>
+                                }
+                            </div>
+                        </div>
+                    }
+                    <hr />
+                }
+                else
+                {
+                    <p class="text-muted text-center py-2 mb-3">
+                        <i class="bi bi-chat d-block display-6 mb-2"></i>
+                        No comments yet — be the first!
+                    </p>
+                    <hr />
+                }
+
+                <!-- Add comment form -->
+                <form asp-controller="Comments" asp-action="Create" method="post" id="commentForm">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="taskId" value="@Model.Id" />
+                    <div class="mb-2">
+                        <textarea id="commentContent" name="content" class="form-control" rows="3"
+                                  placeholder="Write a comment…" maxlength="2000" required></textarea>
+                        <div class="d-flex justify-content-between">
+                            <small class="text-danger" id="commentError"></small>
+                            <small class="text-muted"><span id="commentCount">0</span>/2000</small>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-send me-1"></i>Post Comment
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-body text-center text-muted">
+                <p class="small mb-1">Created</p>
+                <p class="mb-0 fw-semibold">@Model.CreatedAt.ToString("MMM d, yyyy")</p>
+                <p class="small mt-3 mb-1">Task ID</p>
+                <p class="mb-0 fw-semibold">#@Model.Id</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@functions {
+    static string DisplayName(Enum value)
+    {
+        var field = value.GetType().GetField(value.ToString());
+        var attr  = field?.GetCustomAttributes(typeof(System.ComponentModel.DataAnnotations.DisplayAttribute), false)
+                         .FirstOrDefault() as System.ComponentModel.DataAnnotations.DisplayAttribute;
+        return attr?.Name ?? value.ToString();
+    }
+
+    static string StatusBadge(AppTaskStatus s) => s switch
+    {
+        AppTaskStatus.Todo       => "bg-secondary",
+        AppTaskStatus.InProgress => "bg-warning text-dark",
+        AppTaskStatus.Done       => "bg-success",
+        _                        => "bg-secondary"
+    };
+
+    static string PriorityBadge(AppTaskPriority p) => p switch
+    {
+        AppTaskPriority.Low    => "bg-info text-dark",
+        AppTaskPriority.Medium => "bg-warning text-dark",
+        AppTaskPriority.High   => "bg-danger",
+        _                      => "bg-secondary"
+    };
+}
+
+@section Scripts {
+    <script>
+        const ta    = document.getElementById('commentContent');
+        const count = document.getElementById('commentCount');
+        const err   = document.getElementById('commentError');
+
+        ta.addEventListener('input', () => {
+            count.textContent = ta.value.length;
+        });
+
+        document.getElementById('commentForm').addEventListener('submit', function (e) {
+            if (ta.value.trim() === '') {
+                e.preventDefault();
+                err.textContent = 'Comment cannot be empty.';
+                ta.focus();
+            }
+        });
+    </script>
+}

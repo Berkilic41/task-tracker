@@ -1,0 +1,129 @@
+@model RegisterViewModel
+@{
+    ViewData["Title"] = "Register";
+}
+
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h2 class="card-title text-center mb-4">
+                    <i class="bi bi-person-plus me-2 text-primary"></i>Create Account
+                </h2>
+
+                <form asp-action="Register" method="post" id="registerForm" novalidate>
+                    @Html.AntiForgeryToken()
+
+                    <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+
+                    <div class="mb-3">
+                        <label asp-for="Username" class="form-label fw-semibold"></label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-person"></i></span>
+                            <input asp-for="Username" class="form-control" placeholder="Choose a username"
+                                   autocomplete="username" />
+                        </div>
+                        <span asp-validation-for="Username" class="text-danger small"></span>
+                        <div class="form-text">3–50 characters, letters/digits/underscores only.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label asp-for="Email" class="form-label fw-semibold"></label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                            <input asp-for="Email" class="form-control" placeholder="you@example.com"
+                                   autocomplete="email" />
+                        </div>
+                        <span asp-validation-for="Email" class="text-danger small"></span>
+                    </div>
+
+                    <div class="mb-3">
+                        <label asp-for="Password" class="form-label fw-semibold"></label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                            <input asp-for="Password" class="form-control" placeholder="Min 8 characters"
+                                   autocomplete="new-password" id="passwordInput" />
+                            <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                                <i class="bi bi-eye" id="toggleIcon"></i>
+                            </button>
+                        </div>
+                        <span asp-validation-for="Password" class="text-danger small"></span>
+                        <div id="strengthBar" class="mt-1" style="display:none;">
+                            <div class="progress" style="height:4px;">
+                                <div id="strengthIndicator" class="progress-bar" role="progressbar" style="width:0%"></div>
+                            </div>
+                            <small id="strengthLabel" class="text-muted"></small>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label asp-for="ConfirmPassword" class="form-label fw-semibold"></label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                            <input asp-for="ConfirmPassword" class="form-control" placeholder="Repeat password"
+                                   autocomplete="new-password" />
+                        </div>
+                        <span asp-validation-for="ConfirmPassword" class="text-danger small"></span>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-person-check me-2"></i>Create Account
+                    </button>
+                </form>
+
+                <hr class="my-4" />
+                <p class="text-center mb-0 text-muted small">
+                    Already have an account?
+                    <a asp-action="Login">Login here</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @await Html.PartialAsync("_ValidationScriptsPartial")
+    <script>
+        // Toggle password visibility
+        document.getElementById('togglePassword').addEventListener('click', function () {
+            const input = document.getElementById('passwordInput');
+            const icon  = document.getElementById('toggleIcon');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.replace('bi-eye', 'bi-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.replace('bi-eye-slash', 'bi-eye');
+            }
+        });
+
+        // Password strength meter
+        document.getElementById('passwordInput').addEventListener('input', function () {
+            const val      = this.value;
+            const bar      = document.getElementById('strengthBar');
+            const ind      = document.getElementById('strengthIndicator');
+            const lbl      = document.getElementById('strengthLabel');
+            if (!val) { bar.style.display = 'none'; return; }
+            bar.style.display = 'block';
+
+            let score = 0;
+            if (val.length >= 8)               score++;
+            if (/[A-Z]/.test(val))             score++;
+            if (/[0-9]/.test(val))             score++;
+            if (/[^A-Za-z0-9]/.test(val))      score++;
+            if (val.length >= 12)              score++;
+
+            const levels = [
+                { pct: 20,  cls: 'bg-danger',  text: 'Very weak'  },
+                { pct: 40,  cls: 'bg-warning',  text: 'Weak'       },
+                { pct: 60,  cls: 'bg-info',     text: 'Fair'       },
+                { pct: 80,  cls: 'bg-primary',  text: 'Strong'     },
+                { pct: 100, cls: 'bg-success',  text: 'Very strong'}
+            ];
+            const lvl = levels[Math.min(score - 1, 4)] || levels[0];
+            ind.style.width = lvl.pct + '%';
+            ind.className   = 'progress-bar ' + lvl.cls;
+            lbl.textContent = lvl.text;
+        });
+    </script>
+}

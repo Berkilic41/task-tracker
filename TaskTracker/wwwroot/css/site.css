@@ -1,0 +1,61 @@
+/* =============================================
+   Task Tracker – Custom Styles
+   ============================================= */
+
+/* Avatar circle for comments */
+.avatar-circle {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background-color: var(--bs-primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: .875rem;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+/* Slightly softer table rows */
+.table > :not(caption) > * > * {
+    padding-top: .65rem;
+    padding-bottom: .65rem;
+}
+
+/* Constrain long task titles in table */
+td a.text-truncate-cell {
+    max-width: 260px;
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+/* Make card form inputs feel less cramped */
+.card-body .form-control,
+.card-body .form-select {
+    font-size: .9375rem;
+}
+
+/* Navbar active link underline */
+.navbar-nav .nav-link.active {
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* Smooth alert auto-dismiss (optional) */
+@keyframes fadeOut {
+    0%   { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+/* Focus ring colour matching primary */
+:focus-visible {
+    outline: 2px solid var(--bs-primary);
+    outline-offset: 2px;
+}

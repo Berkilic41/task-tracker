@@ -1,0 +1,69 @@
+@model TaskFormViewModel
+@{
+    var users = (IEnumerable<TaskTracker.Models.AppUser>)(ViewBag.Users ?? Enumerable.Empty<TaskTracker.Models.AppUser>());
+}
+
+<div class="mb-3">
+    <label asp-for="Title" class="form-label fw-semibold"></label>
+    <input asp-for="Title" class="form-control" placeholder="What needs to be done?" required />
+    <span asp-validation-for="Title" class="text-danger small"></span>
+</div>
+
+<div class="mb-3">
+    <label asp-for="Description" class="form-label fw-semibold">Description <span class="text-muted fw-normal">(optional)</span></label>
+    <textarea asp-for="Description" class="form-control" rows="4"
+              placeholder="Add more details…" maxlength="4000"></textarea>
+    <span asp-validation-for="Description" class="text-danger small"></span>
+    <div class="form-text text-end">
+        <span id="descCount">0</span> / 4000
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-sm-6">
+        <label asp-for="Status" class="form-label fw-semibold"></label>
+        <select asp-for="Status" class="form-select"
+                asp-items="Html.GetEnumSelectList<AppTaskStatus>()"></select>
+        <span asp-validation-for="Status" class="text-danger small"></span>
+    </div>
+    <div class="col-sm-6">
+        <label asp-for="Priority" class="form-label fw-semibold"></label>
+        <select asp-for="Priority" class="form-select"
+                asp-items="Html.GetEnumSelectList<AppTaskPriority>()"></select>
+        <span asp-validation-for="Priority" class="text-danger small"></span>
+    </div>
+    <div class="col-sm-6">
+        <label asp-for="DueDate" class="form-label fw-semibold"></label>
+        <input asp-for="DueDate" class="form-control" type="date" />
+        <span asp-validation-for="DueDate" class="text-danger small"></span>
+    </div>
+    <div class="col-sm-6">
+        <label asp-for="AssignedToUserId" class="form-label fw-semibold"></label>
+        <select asp-for="AssignedToUserId" class="form-select">
+            <option value="">— Unassigned —</option>
+            @foreach (var u in users)
+            {
+                if (Model?.AssignedToUserId == u.Id)
+                {
+                    <option value="@u.Id" selected="selected">@u.Username</option>
+                }
+                else
+                {
+                    <option value="@u.Id">@u.Username</option>
+                }
+            }
+        </select>
+        <span asp-validation-for="AssignedToUserId" class="text-danger small"></span>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const ta    = document.querySelector('textarea[name="Description"]');
+        const count = document.getElementById('descCount');
+        if (ta && count) {
+            count.textContent = ta.value.length;
+            ta.addEventListener('input', () => count.textContent = ta.value.length);
+        }
+    })();
+</script>
