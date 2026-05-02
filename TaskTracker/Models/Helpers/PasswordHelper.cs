@@ -28,7 +28,7 @@ public static class PasswordHelper
             salt         = Convert.FromBase64String(parts[0]);
             expectedHash = Convert.FromBase64String(parts[1]);
         }
-        catch
+        catch (FormatException)
         {
             return false;
         }

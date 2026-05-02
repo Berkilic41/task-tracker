@@ -7,9 +7,8 @@ namespace TaskTracker.Repositories;
 
 public class TaskRepository : ITaskRepository
 {
-    private readonly DbConnectionFactory _db;
-
-    public TaskRepository(DbConnectionFactory db) => _db = db;
+    private readonly DbConnectionFactory    _db;
+    private readonly ILogger<TaskRepository> _logger;
 
     private const string SelectColumns = @"
         t.Id, t.Title, t.Description, t.Status, t.Priority, t.DueDate,
@@ -21,87 +20,161 @@ public class TaskRepository : ITaskRepository
         LEFT JOIN Users u1 ON t.CreatedByUserId  = u1.Id
         LEFT JOIN Users u2 ON t.AssignedToUserId = u2.Id";
 
-    public async Task<TaskItem?> GetByIdAsync(int id)
+    public TaskRepository(DbConnectionFactory db, ILogger<TaskRepository> logger)
     {
-        using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
-        using var cmd = new SqlCommand($"SELECT {SelectColumns} {FromJoins} WHERE t.Id = @Id", conn);
-        cmd.Parameters.AddWithValue("@Id", id);
-        using var r = await cmd.ExecuteReaderAsync();
-        return await r.ReadAsync() ? Map(r) : null;
+        _db     = db;
+        _logger = logger;
     }
 
-    public async Task<IEnumerable<TaskItem>> GetAllAsync(
-        AppTaskStatus? status = null, AppTaskPriority? priority = null)
+    public async Task<TaskItem?> GetByIdAsync(int id, CancellationToken ct = default)
     {
-        var conditions = new List<string>();
-        using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
-        using var cmd = new SqlCommand { Connection = conn };
-
-        if (status.HasValue)
+        try
         {
-            conditions.Add("t.Status = @Status");
-            cmd.Parameters.AddWithValue("@Status", (int)status.Value);
+            using var conn = _db.CreateConnection();
+            await conn.OpenAsync(ct);
+            using var cmd = new SqlCommand($"SELECT {SelectColumns} {FromJoins} WHERE t.Id = @Id", conn);
+            cmd.Parameters.AddWithValue("@Id", id);
+            using var r = await cmd.ExecuteReaderAsync(ct);
+            return await r.ReadAsync(ct) ? Map(r) : null;
         }
-        if (priority.HasValue)
+        catch (SqlException ex)
         {
-            conditions.Add("t.Priority = @Priority");
-            cmd.Parameters.AddWithValue("@Priority", (int)priority.Value);
+            _logger.LogError(ex, "Database error retrieving task {TaskId}", id);
+            throw;
         }
-
-        var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : string.Empty;
-        cmd.CommandText = $"SELECT {SelectColumns} {FromJoins} {where} ORDER BY t.CreatedAt DESC";
-
-        var list = new List<TaskItem>();
-        using var r = await cmd.ExecuteReaderAsync();
-        while (await r.ReadAsync())
-            list.Add(Map(r));
-        return list;
     }
 
-    public async Task<int> CreateAsync(TaskItem task)
+    public async Task<(IEnumerable<TaskItem> Items, int Total)> GetAllAsync(
+        int currentUserId,
+        AppTaskStatus?   status   = null,
+        AppTaskPriority? priority = null,
+        int page         = 1,
+        int pageSize     = 20,
+        CancellationToken ct = default)
     {
-        using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
-        using var cmd = new SqlCommand(@"
-            INSERT INTO Tasks
-                (Title, Description, Status, Priority, DueDate, CreatedAt, UpdatedAt, CreatedByUserId, AssignedToUserId)
-            VALUES
-                (@Title, @Description, @Status, @Priority, @DueDate, @CreatedAt, @UpdatedAt, @CreatedByUserId, @AssignedToUserId);
-            SELECT SCOPE_IDENTITY();", conn);
+        page     = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        int offset = (page - 1) * pageSize;
 
-        AddTaskParams(cmd, task);
-        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        try
+        {
+            var conditions = new List<string>
+            {
+                "(t.CreatedByUserId = @UserId OR t.AssignedToUserId = @UserId)"
+            };
+
+            using var conn = _db.CreateConnection();
+            await conn.OpenAsync(ct);
+            using var cmd = new SqlCommand { Connection = conn };
+            cmd.Parameters.AddWithValue("@UserId",   currentUserId);
+            cmd.Parameters.AddWithValue("@Offset",   offset);
+            cmd.Parameters.AddWithValue("@PageSize", pageSize);
+
+            if (status.HasValue)
+            {
+                conditions.Add("t.Status = @Status");
+                cmd.Parameters.AddWithValue("@Status", (int)status.Value);
+            }
+            if (priority.HasValue)
+            {
+                conditions.Add("t.Priority = @Priority");
+                cmd.Parameters.AddWithValue("@Priority", (int)priority.Value);
+            }
+
+            var where = "WHERE " + string.Join(" AND ", conditions);
+            cmd.CommandText = $@"
+                SELECT {SelectColumns}, COUNT(*) OVER() AS TotalCount
+                {FromJoins}
+                {where}
+                ORDER BY t.CreatedAt DESC
+                OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
+
+            var list  = new List<TaskItem>();
+            int total = 0;
+            using var r = await cmd.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct))
+            {
+                if (total == 0) total = r.GetInt32(r.GetOrdinal("TotalCount"));
+                list.Add(Map(r));
+            }
+            return (list, total);
+        }
+        catch (SqlException ex)
+        {
+            _logger.LogError(ex, "Database error listing tasks for user {UserId}", currentUserId);
+            throw;
+        }
     }
 
-    public async Task UpdateAsync(TaskItem task)
+    public async Task<int> CreateAsync(TaskItem task, CancellationToken ct = default)
     {
-        using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
-        using var cmd = new SqlCommand(@"
-            UPDATE Tasks SET
-                Title            = @Title,
-                Description      = @Description,
-                Status           = @Status,
-                Priority         = @Priority,
-                DueDate          = @DueDate,
-                UpdatedAt        = @UpdatedAt,
-                AssignedToUserId = @AssignedToUserId
-            WHERE Id = @Id", conn);
+        try
+        {
+            using var conn = _db.CreateConnection();
+            await conn.OpenAsync(ct);
+            using var cmd = new SqlCommand(@"
+                INSERT INTO Tasks
+                    (Title, Description, Status, Priority, DueDate, CreatedAt, UpdatedAt, CreatedByUserId, AssignedToUserId)
+                VALUES
+                    (@Title, @Description, @Status, @Priority, @DueDate, @CreatedAt, @UpdatedAt, @CreatedByUserId, @AssignedToUserId);
+                SELECT SCOPE_IDENTITY();", conn);
 
-        cmd.Parameters.AddWithValue("@Id", task.Id);
-        AddTaskParams(cmd, task);
-        await cmd.ExecuteNonQueryAsync();
+            AddTaskParams(cmd, task);
+            var result = await cmd.ExecuteScalarAsync(ct);
+            if (result == null || result == DBNull.Value)
+                throw new InvalidOperationException("Failed to retrieve the created task ID.");
+            return Convert.ToInt32(result);
+        }
+        catch (SqlException ex)
+        {
+            _logger.LogError(ex, "Database error creating task '{Title}'", task.Title);
+            throw;
+        }
     }
 
-    public async Task DeleteAsync(int id)
+    public async Task UpdateAsync(TaskItem task, CancellationToken ct = default)
     {
-        using var conn = _db.CreateConnection();
-        await conn.OpenAsync();
-        using var cmd = new SqlCommand("DELETE FROM Tasks WHERE Id = @Id", conn);
-        cmd.Parameters.AddWithValue("@Id", id);
-        await cmd.ExecuteNonQueryAsync();
+        try
+        {
+            using var conn = _db.CreateConnection();
+            await conn.OpenAsync(ct);
+            using var cmd = new SqlCommand(@"
+                UPDATE Tasks SET
+                    Title            = @Title,
+                    Description      = @Description,
+                    Status           = @Status,
+                    Priority         = @Priority,
+                    DueDate          = @DueDate,
+                    UpdatedAt        = @UpdatedAt,
+                    AssignedToUserId = @AssignedToUserId
+                WHERE Id = @Id", conn);
+
+            cmd.Parameters.AddWithValue("@Id", task.Id);
+            AddTaskParams(cmd, task);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (SqlException ex)
+        {
+            _logger.LogError(ex, "Database error updating task {TaskId}", task.Id);
+            throw;
+        }
+    }
+
+    public async Task DeleteAsync(int id, CancellationToken ct = default)
+    {
+        try
+        {
+            using var conn = _db.CreateConnection();
+            await conn.OpenAsync(ct);
+            using var cmd = new SqlCommand("DELETE FROM Tasks WHERE Id = @Id", conn);
+            cmd.Parameters.AddWithValue("@Id", id);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (SqlException ex)
+        {
+            _logger.LogError(ex, "Database error deleting task {TaskId}", id);
+            throw;
+        }
     }
 
     private static void AddTaskParams(SqlCommand cmd, TaskItem t)
@@ -119,17 +192,17 @@ public class TaskRepository : ITaskRepository
 
     private static TaskItem Map(SqlDataReader r) => new()
     {
-        Id                 = r.GetInt32(0),
-        Title              = r.GetString(1),
-        Description        = r.IsDBNull(2)  ? null : r.GetString(2),
-        Status             = (AppTaskStatus)r.GetByte(3),
-        Priority           = (AppTaskPriority)r.GetByte(4),
-        DueDate            = r.IsDBNull(5)  ? null : r.GetDateTime(5),
-        CreatedAt          = r.GetDateTime(6),
-        UpdatedAt          = r.GetDateTime(7),
-        CreatedByUserId    = r.GetInt32(8),
-        AssignedToUserId   = r.IsDBNull(9)  ? null : r.GetInt32(9),
-        CreatedByUsername  = r.IsDBNull(10) ? null : r.GetString(10),
-        AssignedToUsername = r.IsDBNull(11) ? null : r.GetString(11)
+        Id                 = r.GetInt32(r.GetOrdinal("Id")),
+        Title              = r.GetString(r.GetOrdinal("Title")),
+        Description        = r.IsDBNull(r.GetOrdinal("Description"))        ? null : r.GetString(r.GetOrdinal("Description")),
+        Status             = (AppTaskStatus)r.GetByte(r.GetOrdinal("Status")),
+        Priority           = (AppTaskPriority)r.GetByte(r.GetOrdinal("Priority")),
+        DueDate            = r.IsDBNull(r.GetOrdinal("DueDate"))            ? null : r.GetDateTime(r.GetOrdinal("DueDate")),
+        CreatedAt          = r.GetDateTime(r.GetOrdinal("CreatedAt")),
+        UpdatedAt          = r.GetDateTime(r.GetOrdinal("UpdatedAt")),
+        CreatedByUserId    = r.GetInt32(r.GetOrdinal("CreatedByUserId")),
+        AssignedToUserId   = r.IsDBNull(r.GetOrdinal("AssignedToUserId"))   ? null : r.GetInt32(r.GetOrdinal("AssignedToUserId")),
+        CreatedByUsername  = r.IsDBNull(r.GetOrdinal("CreatedByUsername"))  ? null : r.GetString(r.GetOrdinal("CreatedByUsername")),
+        AssignedToUsername = r.IsDBNull(r.GetOrdinal("AssignedToUsername")) ? null : r.GetString(r.GetOrdinal("AssignedToUsername"))
     };
 }

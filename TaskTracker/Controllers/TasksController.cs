@@ -4,47 +4,64 @@ using Microsoft.AspNetCore.Mvc;
 using TaskTracker.Models;
 using TaskTracker.Models.ViewModels;
 using TaskTracker.Repositories.Interfaces;
+using TaskTracker.Services.Interfaces;
 
 namespace TaskTracker.Controllers;
 
 [Authorize]
 public class TasksController : Controller
 {
-    private readonly ITaskRepository    _tasks;
+    private const int DefaultPageSize = 20;
+    private const int MaxPageSize     = 100;
+
+    private readonly ITaskService       _taskService;
     private readonly IUserRepository    _users;
     private readonly ICommentRepository _comments;
 
-    public TasksController(
-        ITaskRepository    tasks,
-        IUserRepository    users,
-        ICommentRepository comments)
+    public TasksController(ITaskService taskService, IUserRepository users, ICommentRepository comments)
     {
-        _tasks    = tasks;
-        _users    = users;
-        _comments = comments;
+        _taskService = taskService;
+        _users       = users;
+        _comments    = comments;
     }
 
-    // GET /Tasks  ?status=&priority=
-    public async Task<IActionResult> Index(int? status, int? priority)
+    private int GetUserId()
     {
+        if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+            throw new InvalidOperationException("User ID claim is missing or invalid.");
+        return userId;
+    }
+
+    // GET /Tasks  ?status=&priority=&page=&pageSize=
+    public async Task<IActionResult> Index(int? status, int? priority, int page = 1, int pageSize = DefaultPageSize)
+    {
+        var userId       = GetUserId();
+        pageSize         = Math.Clamp(pageSize, 1, MaxPageSize);
         AppTaskStatus?   statusEnum   = status.HasValue   ? (AppTaskStatus)status.Value     : null;
         AppTaskPriority? priorityEnum = priority.HasValue ? (AppTaskPriority)priority.Value : null;
 
-        var tasks = await _tasks.GetAllAsync(statusEnum, priorityEnum);
+        var (tasks, total) = await _taskService.GetAllForUserAsync(userId, statusEnum, priorityEnum, page, pageSize);
 
         ViewBag.StatusFilter   = status;
         ViewBag.PriorityFilter = priority;
+        ViewBag.Page           = page;
+        ViewBag.PageSize       = pageSize;
+        ViewBag.TotalCount     = total;
+        ViewBag.TotalPages     = (int)Math.Ceiling(total / (double)pageSize);
         return View(tasks);
     }
 
     // GET /Tasks/Details/5
     public async Task<IActionResult> Details(int id)
     {
-        var task = await _tasks.GetByIdAsync(id);
-        if (task is null) return NotFound();
-
-        task.Comments = (await _comments.GetByTaskIdAsync(id)).ToList();
-        return View(task);
+        try
+        {
+            var task = await _taskService.GetOwnedByIdAsync(id, GetUserId(), requireCreator: false);
+            task.Comments = (await _comments.GetByTaskIdAsync(id)).ToList();
+            return View(task);
+        }
+        catch (KeyNotFoundException)        { return NotFound(); }
+        catch (UnauthorizedAccessException) { return Forbid(); }
     }
 
     // GET /Tasks/Create
@@ -64,22 +81,7 @@ public class TasksController : Controller
             return View(model);
         }
 
-        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-        var now    = DateTime.UtcNow;
-
-        await _tasks.CreateAsync(new TaskItem
-        {
-            Title            = model.Title,
-            Description      = model.Description,
-            Status           = model.Status,
-            Priority         = model.Priority,
-            DueDate          = model.DueDate,
-            AssignedToUserId = model.AssignedToUserId,
-            CreatedByUserId  = userId,
-            CreatedAt        = now,
-            UpdatedAt        = now
-        });
-
+        await _taskService.CreateAsync(GetUserId(), model);
         TempData["Success"] = "Task created successfully.";
         return RedirectToAction(nameof(Index));
     }
@@ -87,19 +89,22 @@ public class TasksController : Controller
     // GET /Tasks/Edit/5
     public async Task<IActionResult> Edit(int id)
     {
-        var task = await _tasks.GetByIdAsync(id);
-        if (task is null) return NotFound();
-
-        ViewBag.Users = await _users.GetAllAsync();
-        return View(new TaskFormViewModel
+        try
         {
-            Title            = task.Title,
-            Description      = task.Description,
-            Status           = task.Status,
-            Priority         = task.Priority,
-            DueDate          = task.DueDate,
-            AssignedToUserId = task.AssignedToUserId
-        });
+            var task = await _taskService.GetOwnedByIdAsync(id, GetUserId(), requireCreator: true);
+            ViewBag.Users = await _users.GetAllAsync();
+            return View(new TaskFormViewModel
+            {
+                Title            = task.Title,
+                Description      = task.Description,
+                Status           = task.Status,
+                Priority         = task.Priority,
+                DueDate          = task.DueDate,
+                AssignedToUserId = task.AssignedToUserId
+            });
+        }
+        catch (KeyNotFoundException)        { return NotFound(); }
+        catch (UnauthorizedAccessException) { return Forbid(); }
     }
 
     // POST /Tasks/Edit/5
@@ -112,36 +117,39 @@ public class TasksController : Controller
             return View(model);
         }
 
-        var task = await _tasks.GetByIdAsync(id);
-        if (task is null) return NotFound();
-
-        task.Title            = model.Title;
-        task.Description      = model.Description;
-        task.Status           = model.Status;
-        task.Priority         = model.Priority;
-        task.DueDate          = model.DueDate;
-        task.AssignedToUserId = model.AssignedToUserId;
-        task.UpdatedAt        = DateTime.UtcNow;
-
-        await _tasks.UpdateAsync(task);
-        TempData["Success"] = "Task updated successfully.";
-        return RedirectToAction(nameof(Details), new { id });
+        try
+        {
+            await _taskService.UpdateAsync(id, GetUserId(), model);
+            TempData["Success"] = "Task updated successfully.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+        catch (KeyNotFoundException)        { return NotFound(); }
+        catch (UnauthorizedAccessException) { return Forbid(); }
     }
 
     // GET /Tasks/Delete/5
     public async Task<IActionResult> Delete(int id)
     {
-        var task = await _tasks.GetByIdAsync(id);
-        if (task is null) return NotFound();
-        return View(task);
+        try
+        {
+            var task = await _taskService.GetOwnedByIdAsync(id, GetUserId(), requireCreator: true);
+            return View(task);
+        }
+        catch (KeyNotFoundException)        { return NotFound(); }
+        catch (UnauthorizedAccessException) { return Forbid(); }
     }
 
     // POST /Tasks/Delete/5
     [HttpPost, ActionName("Delete"), ValidateAntiForgeryToken]
     public async Task<IActionResult> DeleteConfirmed(int id)
     {
-        await _tasks.DeleteAsync(id);
-        TempData["Success"] = "Task deleted.";
-        return RedirectToAction(nameof(Index));
+        try
+        {
+            await _taskService.DeleteAsync(id, GetUserId());
+            TempData["Success"] = "Task deleted.";
+            return RedirectToAction(nameof(Index));
+        }
+        catch (KeyNotFoundException)        { return NotFound(); }
+        catch (UnauthorizedAccessException) { return Forbid(); }
     }
 }
